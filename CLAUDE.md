@@ -85,6 +85,32 @@ sent (`fps`/`tps` kill the client, `path` is required for camera moves to
 apply), never let the playhead reach the replay's end, aim the camera only
 after seeking and while playing, and don't touch the mouse during a run.
 
+## Video review (Phase 3)
+
+```bash
+python tools/video_review.py              # -> data/video_queue.json + a worklist
+# Claude reads each packet's frames + distilled state, then writes
+# data/matches/<id>/video_findings.json
+python tools/video_review.py --check      # validate; exits non-zero on any problem
+python tools/video_review.py --status     # coverage per match
+python tools/build_review.py              # findings appear under their clip
+```
+
+Read [docs/PHASE3.md](docs/PHASE3.md) first. The rules that matter:
+
+- **Verdicts go in the per-game review too**, next to the stats evidence — one
+  verdict per moment with both kinds of evidence behind it, not a separate
+  video report.
+- **Cross-check every visual claim against the timeline before writing it.**
+  Bar length on screen is not a measurement; `championStats.health` in the
+  minute frame is. A finding that contradicts the frame data is wrong.
+- **`unreadable` is a first-class answer.** If the footage doesn't settle it,
+  say so. A camera parked on a death coordinate often misses the approach.
+- The player HUD renders in **f01 only**, and the two summoner spell icons
+  are not reliably distinguishable at this capture width.
+- A replay is a spectator client, so **the enemy team's pings are visible**.
+  Useful for diagnosis; never coach as if the player could have seen them.
+
 ### If a replay looks frozen
 
 Capture freezes the client for ~0.5s per frame, so 21-35s per clip, and the
