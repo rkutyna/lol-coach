@@ -18,6 +18,38 @@ const svgEl = (tag, attrs = {}) => {
 const clock = (min) => `${Math.floor(min)}:${String(Math.round((min % 1) * 60)).padStart(2, "0")}`;
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
+/* Dates arrive as UTC (`played_utc`). A game played at 19:00 local already
+   falls on the NEXT UTC day, so anything rendered straight from that string
+   is a day ahead for an evening game. Everything shown to the player is
+   therefore converted to their own timezone first. */
+const asDate = (iso) => {
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d;
+};
+const pad2 = (n) => String(n).padStart(2, "0");
+const localYMD = (iso) => {
+  const d = asDate(iso);
+  return d ? `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+           : String(iso).slice(0, 10);
+};
+const localMD = (iso) => {
+  const d = asDate(iso);
+  return d ? `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` : String(iso).slice(5, 10);
+};
+const localStamp = (iso) => {
+  const d = asDate(iso);
+  return d ? `${localYMD(iso)} ${pad2(d.getHours())}:${pad2(d.getMinutes())} local`
+           : String(iso).replace("T", " ").slice(0, 16);
+};
+/* Whole calendar days between two local dates - not elapsed hours. A game at
+   21:00 yesterday is "yesterday" even though it was 15 hours ago. */
+const daysAgoLocal = (iso) => {
+  const d = asDate(iso);
+  if (!d) return null;
+  const midnight = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  return Math.round((midnight(new Date()) - midnight(d)) / 86400000);
+};
+
 /* ---------- tiny markdown renderer (headings, lists, tables, inline) ---------- */
 
 function inline(s) {
@@ -599,11 +631,14 @@ function dashboard() {
 const queueState = {};
 
 const RELATIVE_DAY = (g) => {
-  const d = g.age_days;
-  if (d == null) return g.played_utc ? g.played_utc.slice(0, 10) : "—";
-  if (d === 0) return "today";
+  // Deliberately NOT meta.age_days: that is elapsed whole days in UTC, so a
+  // game played last night reads as 0 and renders "today".
+  const d = g.played_utc ? daysAgoLocal(g.played_utc) : null;
+  if (d == null) return g.played_utc ? localYMD(g.played_utc) : "—";
+  if (d <= 0) return "today";
   if (d === 1) return "yesterday";
-  return `${d}d ago`;
+  if (d < 7) return `${d}d ago`;
+  return localMD(g.played_utc);
 };
 
 const queueDuration = (g) => (g.duration_s != null ? clock(g.duration_s / 60) : "—");
@@ -647,7 +682,7 @@ function queueRow(g, state, onChange) {
   };
 
   const playedTd = td(RELATIVE_DAY(g));
-  if (g.played_utc) playedTd.title = g.played_utc.replace("T", " ").slice(0, 16);
+  if (g.played_utc) playedTd.title = localStamp(g.played_utc);
 
   td(`${g.champion ?? "—"}${g.position ? " " + g.position.toLowerCase() : ""}`);
 
@@ -881,7 +916,7 @@ function gameView(game) {
     `${game.meta.champion} ${game.meta.position.toLowerCase()} — ${s.result}, ` +
     `${Math.round(s.duration_min)} min vs ${s.enemy_jungler}`));
   top.appendChild(el("p", "sub",
-    `${game.meta.queue} · ${game.meta.played_utc.slice(0, 10)} · ` +
+    `${game.meta.queue} · ${localYMD(game.meta.played_utc)} · ` +
     (game.meta.replay_capturable ? "replay still capturable" : "replay expired")));
   const strip = el("div", "stats");
   for (const [k, v] of [["K/D/A", s.kda], ["CS/min", s.cs_per_min],
@@ -928,7 +963,7 @@ function init() {
 
   const routes = [["batch", "Batch"], ["queue", "Queue"]].concat(D.games.map((g) => [
     g.meta.match_id,
-    `${g.stats.result === "win" ? "W" : "L"} ${g.meta.champion} ${g.meta.played_utc.slice(5, 10)}`,
+    `${g.stats.result === "win" ? "W" : "L"} ${g.meta.champion} ${localMD(g.meta.played_utc)}`,
   ]));
   for (const [route, label] of routes) {
     const btn = el("button", null, label);
