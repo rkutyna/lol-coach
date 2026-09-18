@@ -592,6 +592,282 @@ function dashboard() {
   return frag;
 }
 
+/* ---------- queue (review + video selection) ---------- */
+
+// In-memory selection, keyed by match_id, seeded once from each game's saved
+// `queued` flags. Kept at module scope so it survives switching tabs.
+const queueState = {};
+
+const RELATIVE_DAY = (g) => {
+  const d = g.age_days;
+  if (d == null) return g.played_utc ? g.played_utc.slice(0, 10) : "—";
+  if (d === 0) return "today";
+  if (d === 1) return "yesterday";
+  return `${d}d ago`;
+};
+
+const queueDuration = (g) => (g.duration_s != null ? clock(g.duration_s / 60) : "—");
+
+function queueStatusCell(g) {
+  const wrap = el("div");
+  wrap.appendChild(el("span", `badge ${g.has_review ? "ok" : "off"}`, g.has_review ? "reviewed" : "no review"));
+  const bits = [];
+  if (g.moments != null) bits.push(`${g.moments} moment${g.moments === 1 ? "" : "s"}`);
+  if (g.clips_planned) bits.push(`${g.clips_captured ?? 0}/${g.clips_planned} clips`);
+  if (g.video_findings) bits.push(`${g.video_findings} finding${g.video_findings === 1 ? "" : "s"}`);
+  if (bits.length) wrap.appendChild(el("span", "sub", " " + bits.join(" · ")));
+  return wrap;
+}
+
+function queueExpiryCell(g) {
+  const capturable = g.replay_capturable !== false;
+  if (!capturable) {
+    const b = el("span", "badge off", "expired");
+    b.title = "Replay is past the patch cutoff — video can no longer be captured for this game.";
+    return b;
+  }
+  if (g.age_days != null && g.age_days > 12) {
+    const b = el("span", "badge warn", "expiring soon");
+    b.title = `Replay is ${g.age_days} days old. Replays stop opening once the patch rotates — capture soon.`;
+    return b;
+  }
+  return el("span", "sub", "—");
+}
+
+/** One <tr> for a game, wired to `state` (queueState[match_id]). Returns the
+ *  row plus its two checkbox inputs so bulk actions can sync them. */
+function queueRow(g, state, onChange) {
+  const tr = el("tr");
+  const td = (content, cls) => {
+    const c = el("td", cls);
+    if (content instanceof Node) c.appendChild(content);
+    else c.textContent = content;
+    tr.appendChild(c);
+    return c;
+  };
+
+  const playedTd = td(RELATIVE_DAY(g));
+  if (g.played_utc) playedTd.title = g.played_utc.replace("T", " ").slice(0, 16);
+
+  td(`${g.champion ?? "—"}${g.position ? " " + g.position.toLowerCase() : ""}`);
+
+  const wlClass = g.win == null ? "badge" : `badge ${g.win ? "ok" : "off"}`;
+  td(el("span", wlClass, g.win == null ? "—" : g.win ? "W" : "L"));
+
+  td(g.kda ?? "—");
+  td(g.cs != null ? String(g.cs) : "—");
+  td(queueDuration(g));
+  td(g.enemy_jungler ?? "—");
+  td(queueStatusCell(g));
+  td(queueExpiryCell(g));
+
+  const capturable = g.replay_capturable !== false;
+
+  const reviewCb = el("input");
+  reviewCb.type = "checkbox";
+  reviewCb.checked = !!state.review;
+  reviewCb.addEventListener("change", () => { state.review = reviewCb.checked; onChange(); });
+  td(reviewCb, "cb");
+
+  const videoCb = el("input");
+  videoCb.type = "checkbox";
+  videoCb.checked = !!state.video;
+  videoCb.disabled = !capturable;
+  const videoTd = td(videoCb, "cb");
+  if (!capturable) videoTd.title = "Replay no longer capturable — video is not possible for this game.";
+
+  return { tr, inputs: { review: reviewCb, video: videoCb } };
+}
+
+/** Shell commands the current selection implies. */
+function queueCommand(games, state) {
+  const reviewIds = games.filter((g) => state[g.match_id]?.review).map((g) => g.match_id);
+  const videoIds = games.filter((g) => state[g.match_id]?.video).map((g) => g.match_id);
+  const lines = [];
+  if (reviewIds.length) lines.push("python tools/run_queue.py");
+  if (videoIds.length) lines.push(`python tools/capture.py ${videoIds.join(" ")} --launch`);
+  return { text: lines.length ? lines.join("\n") : "# nothing queued yet — tick a box above", reviewIds, videoIds };
+}
+
+/** The calm, load-bearing warning about capture freezes. Only shown when
+ *  video is actually being requested. */
+function queueVideoWarning(videoIds, games) {
+  if (!videoIds.length) return null;
+  const totalClips = videoIds.reduce((sum, id) => {
+    const g = games.find((x) => x.match_id === id);
+    return sum + (g?.clips_planned || g?.needs_video_moments || 1);
+  }, 0);
+  const minutes = Math.round(totalClips * 2.5);
+  const p = el("p", "queue-warning",
+    `Capturing ${totalClips} clip${totalClips === 1 ? "" : "s"} across ${videoIds.length} game${videoIds.length === 1 ? "" : "s"} ` +
+    `takes about ${minutes} min total (~2.5 min per clip). Each clip freezes the game 21-35 seconds — ` +
+    `do not touch the mouse while it runs. To confirm it is working rather than stuck, watch the frame count ` +
+    `rise: find /tmp/lol-coach-capture -name '*.png' | wc -l`);
+  return p;
+}
+
+async function queueSave(games, btn, statusEl) {
+  const payload = {};
+  for (const g of games) {
+    payload[g.match_id] = { review: !!queueState[g.match_id].review, video: !!queueState[g.match_id].video };
+  }
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Saving…";
+  statusEl.textContent = "";
+  statusEl.className = "queue-status";
+  try {
+    const res = await fetch("/api/queue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`server returned ${res.status}`);
+    await res.json().catch(() => null);
+    statusEl.textContent = "Saved.";
+    statusEl.classList.add("ok");
+  } catch (err) {
+    statusEl.textContent = `Couldn't save (${err.message}). Run the command below instead.`;
+    statusEl.classList.add("off");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prev;
+  }
+}
+
+function queueView() {
+  const frag = document.createDocumentFragment();
+  const games = Array.isArray(D.library) ? D.library : null;
+
+  if (!games || games.length === 0) {
+    const card = el("div", "card");
+    card.appendChild(el("h3", null, "Queue"));
+    card.appendChild(el("p", "sub",
+      "No fetched-game library yet. Run tools/fetch_match.py and tools/build_review.py, then reload this page."));
+    frag.appendChild(card);
+    return frag;
+  }
+
+  for (const g of games) {
+    if (!queueState[g.match_id]) {
+      const capturable = g.replay_capturable !== false;
+      queueState[g.match_id] = {
+        review: !!(g.queued && g.queued.review),
+        video: capturable && !!(g.queued && g.queued.video),
+      };
+    }
+  }
+
+  const card = el("div", "card");
+  card.appendChild(el("h3", null, `Queue (${games.length} game${games.length === 1 ? "" : "s"})`));
+  card.appendChild(el("p", "sub",
+    "Tick which games get a written review and which get replay clips captured, then save."));
+
+  const bulk = el("div", "queue-bulk");
+  const bulkBtn = (label, fn) => {
+    const b = el("button", "toggle", label);
+    b.addEventListener("click", fn);
+    return b;
+  };
+  bulk.appendChild(el("span", "sub", "Review:"));
+  bulk.appendChild(bulkBtn("All", () => setAll("review", true)));
+  bulk.appendChild(bulkBtn("None", () => setAll("review", false)));
+  bulk.appendChild(el("span", "sub", "Video:"));
+  bulk.appendChild(bulkBtn("All capturable", () => setAll("video", true)));
+  bulk.appendChild(bulkBtn("None", () => setAll("video", false)));
+  card.appendChild(bulk);
+
+  const table = el("table");
+  const headRow = el("tr");
+  for (const h of ["played", "game", "result", "kda", "cs", "time", "vs jungler", "status", "expiry", "review", "video"]) {
+    headRow.appendChild(el("th", null, h));
+  }
+  const thead = el("thead");
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+  const tbody = el("tbody");
+  table.appendChild(tbody);
+
+  const rowInputs = {};
+  for (const g of games) {
+    const { tr, inputs } = queueRow(g, queueState[g.match_id], () => refresh());
+    rowInputs[g.match_id] = inputs;
+    tbody.appendChild(tr);
+  }
+  card.appendChild(table);
+  frag.appendChild(card);
+
+  const bottom = el("div", "card");
+  const countLine = el("p");
+  bottom.appendChild(countLine);
+
+  const isFile = location.protocol === "file:";
+  const saveWrap = el("div", "queue-save");
+  if (isFile) {
+    const note = el("p", "sub", "This page is open from a file, so saving is disabled. Serve it instead: ");
+    note.appendChild(el("code", null, "python3 -I tools/serve.py 8777"));
+    saveWrap.appendChild(note);
+  } else {
+    const saveBtn = el("button", "play", "Save queue");
+    const statusEl = el("span", "queue-status");
+    saveBtn.addEventListener("click", () => queueSave(games, saveBtn, statusEl));
+    saveWrap.append(saveBtn, statusEl);
+  }
+  bottom.appendChild(saveWrap);
+
+  const warnWrap = el("div");
+  bottom.appendChild(warnWrap);
+
+  const cmdHead = el("div", "chart-head");
+  cmdHead.appendChild(el("h3", null, "Command to run"));
+  const copyBtn = el("button", "toggle", "Copy");
+  cmdHead.appendChild(copyBtn);
+  bottom.appendChild(cmdHead);
+  const pre = el("pre", "cmdblock");
+  bottom.appendChild(pre);
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(pre.textContent);
+      const old = copyBtn.textContent;
+      copyBtn.textContent = "Copied";
+      setTimeout(() => (copyBtn.textContent = old), 1200);
+    } catch {
+      copyBtn.textContent = "Select & copy manually";
+    }
+  });
+  frag.appendChild(bottom);
+
+  function setAll(kind, value) {
+    for (const g of games) {
+      // Nothing to film in a game with no detected moments (a remake, or one
+      // that hasn't been through find_moments yet), so bulk-select skips it.
+      // An individual checkbox can still be ticked by hand.
+      if (kind === "video" && value &&
+          (g.replay_capturable === false || !g.moments)) continue;
+      queueState[g.match_id][kind] = value;
+      const input = rowInputs[g.match_id][kind];
+      if (input && !input.disabled) input.checked = value;
+    }
+    refresh();
+  }
+
+  function refresh() {
+    const reviewCount = games.filter((g) => queueState[g.match_id].review).length;
+    const videoCount = games.filter((g) => queueState[g.match_id].video).length;
+    countLine.textContent = `${reviewCount} game${reviewCount === 1 ? "" : "s"} queued for review, ${videoCount} for video.`;
+
+    const { text, videoIds } = queueCommand(games, queueState);
+    pre.textContent = text;
+
+    warnWrap.textContent = "";
+    const warn = queueVideoWarning(videoIds, games);
+    if (warn) warnWrap.appendChild(warn);
+  }
+
+  refresh();
+  return frag;
+}
+
 /* ---------- routing ---------- */
 
 const main = el("div", "wrap");
@@ -639,7 +915,9 @@ function gameView(game) {
 function render(route) {
   main.textContent = "";
   for (const btn of nav.children) btn.setAttribute("aria-current", String(btn.dataset.route === route));
-  main.appendChild(route === "batch" ? dashboard() : gameView(D.games.find((g) => g.meta.match_id === route)));
+  main.appendChild(route === "batch" ? dashboard()
+    : route === "queue" ? queueView()
+    : gameView(D.games.find((g) => g.meta.match_id === route)));
   window.scrollTo({ top: 0 });
 }
 
@@ -648,7 +926,7 @@ function init() {
   header.appendChild(Object.assign(el("h1", null, "lol-coach"), {}));
   header.appendChild(el("span", "sub", D.player));
 
-  const routes = [["batch", "Batch"]].concat(D.games.map((g) => [
+  const routes = [["batch", "Batch"], ["queue", "Queue"]].concat(D.games.map((g) => [
     g.meta.match_id,
     `${g.stats.result === "win" ? "W" : "L"} ${g.meta.champion} ${g.meta.played_utc.slice(5, 10)}`,
   ]));

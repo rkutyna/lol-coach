@@ -175,6 +175,143 @@ def video_findings_for(match_dir: Path) -> dict:
         return {}
 
 
+def load_review_queue() -> dict:
+    """match_id -> {"review": bool, "video": bool} from data/review_queue.json.
+
+    A missing or malformed file just means nothing is queued yet — never a
+    reason to fail the build.
+    """
+    f = DATA / "review_queue.json"
+    if not f.exists():
+        return {}
+    try:
+        games = json.loads(f.read_text()).get("games", {})
+        return games if isinstance(games, dict) else {}
+    except Exception as e:
+        print(f"warning: skipping {f} — {e}")
+        return {}
+
+
+def capture_plan_counts() -> dict[str, int]:
+    """match_id -> number of clips data/capture_plan.json has planned for it."""
+    f = DATA / "capture_plan.json"
+    if not f.exists():
+        return {}
+    try:
+        plans = json.loads(f.read_text())["plans"]
+        return {p["match_id"]: len(p.get("jobs", [])) for p in plans}
+    except Exception as e:
+        print(f"warning: skipping {f} — {e}")
+        return {}
+
+
+def enemy_jungler_for(match_dir: Path) -> str:
+    """Read from moments.json, falling back to stats.json, else '?'.
+
+    Both are written from the same timeline data, so either answers this;
+    neither existing yet (a game not run through find_moments/digest) is not
+    an error.
+    """
+    for name in ("moments.json", "stats.json"):
+        f = match_dir / name
+        if not f.exists():
+            continue
+        try:
+            return json.loads(f.read_text()).get("enemy_jungler", "?")
+        except Exception:
+            continue
+    return "?"
+
+
+def library_entry(idx: dict, review_queue: dict, plan_counts: dict[str, int]) -> dict:
+    """One row for the game-picker page — must render from meta.json alone.
+
+    Every richer field (moments, clips, video findings) degrades to a zero or
+    a default instead of raising, so a game that's only been fetched still
+    shows up.
+    """
+    match_id = idx["match_id"]
+    match_dir = DATA / "matches" / match_id
+
+    moments: list[dict] = []
+    moments_f = match_dir / "moments.json"
+    if moments_f.exists():
+        try:
+            moments = json.loads(moments_f.read_text()).get("moments", [])
+        except Exception as e:
+            print(f"warning: skipping {moments_f} — {e}")
+
+    clips_captured = 0
+    clips_f = match_dir / "clips.json"
+    if clips_f.exists():
+        try:
+            clips = json.loads(clips_f.read_text())
+            clips_captured = sum(1 for c in clips.values()
+                                  if c.get("status") in ("ok", "partial"))
+        except Exception as e:
+            print(f"warning: skipping {clips_f} — {e}")
+
+    findings = video_findings_for(match_dir)
+    queued = review_queue.get(match_id, {})
+
+    return {
+        "match_id": match_id,
+        "played_utc": idx.get("played_utc", "?"),
+        "age_days": idx.get("age_days", 0),
+        "queue": idx.get("queue", "?"),
+        "champion": idx.get("champion", "?"),
+        "position": idx.get("position", "?"),
+        "win": bool(idx.get("win", False)),
+        "kda": idx.get("kda", "?"),
+        "cs": idx.get("cs", 0),
+        "duration_s": idx.get("duration_s", 0),
+        "patch": idx.get("patch", "?"),
+        "enemy_jungler": enemy_jungler_for(match_dir),
+        "replay_capturable": bool(idx.get("replay_capturable", False)),
+        "has_review": (DATA / "reviews" / f"{match_id}.md").exists(),
+        "has_stats": (match_dir / "stats.json").exists(),
+        "moments": len(moments),
+        "needs_video_moments": sum(1 for m in moments if m.get("needs_video")),
+        "clips_planned": plan_counts.get(match_id, 0),
+        "clips_captured": clips_captured,
+        "video_findings": len(findings),
+        "queued": {
+            "review": bool(queued.get("review", False)),
+            "video": bool(queued.get("video", False)),
+        },
+    }
+
+
+def build_library() -> list[dict]:
+    """Every fetched game, newest first — what the picker page renders.
+
+    Unlike `games` below (which only lists matches worth coaching), this
+    includes everything in the index, including a 1-minute remake with no
+    moments: the point of the picker is to see and select from all of it.
+    """
+    index_f = DATA / "matches" / "index.json"
+    if not index_f.exists():
+        return []
+    try:
+        index = json.loads(index_f.read_text())
+    except Exception as e:
+        print(f"warning: skipping {index_f} — {e}")
+        return []
+
+    review_queue = load_review_queue()
+    plan_counts = capture_plan_counts()
+
+    entries = []
+    for idx in index:
+        try:
+            entries.append(library_entry(idx, review_queue, plan_counts))
+        except Exception as e:
+            print(f'warning: skipping library entry for {idx.get("match_id", "?")} — {e}')
+
+    entries.sort(key=lambda e: e["played_utc"], reverse=True)
+    return entries
+
+
 def player_label() -> str:
     """Who the page says it is about. Read at runtime: the repo names nobody."""
     f = DATA / "player.json"
@@ -236,6 +373,7 @@ def main() -> int:
     payload = {
         "player": player_label(),
         "games": games,
+        "library": build_library(),
         "batch": batch.get("batch", {}),
         "batch_review_md": reviews[0].read_text() if reviews else "",
         "profile_md": (DATA / "profile.md").read_text(),
@@ -260,7 +398,8 @@ def main() -> int:
     video_count = sum(1 for g in games for m in g["moments"] if m.get("video"))
     total_moments = sum(len(g["moments"]) for g in games)
     print(f'web/data.json: {len(games)} games, {total_moments} moments, '
-          f'{clip_count} with clips, {video_count} with video findings')
+          f'{clip_count} with clips, {video_count} with video findings, '
+          f'{len(payload["library"])} games in the library')
     print(f'open {WEB / "index.html"}')
     return 0
 
