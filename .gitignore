@@ -1,0 +1,22 @@
+# --- Secrets and identity -------------------------------------------------
+# .env holds RIOT_API_KEY. player.json names a real Riot account.
+.env
+data/player.json
+
+# --- Personal game data ---------------------------------------------------
+# Every match.json, timeline.json and state/*.json carries the PUUIDs and Riot
+# IDs of all ten players in the game, so none of data/ is published. The tools
+# recreate all of it from the API; the written reviews are the player's own.
+data/*
+!data/player.example.json
+
+# --- Generated -------------------------------------------------------------
+# build_review.py rebuilds these from data/; clips are copies of captured mp4s.
+web/clips/
+web/data.js
+web/data.json
+
+# --- Junk ------------------------------------------------------------------
+__pycache__/
+*.pyc
+.DS_Store
