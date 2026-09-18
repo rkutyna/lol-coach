@@ -83,10 +83,28 @@ them.
 - **Reaction vs. drift** — whether a dead minute was a response to something
   on screen or just movement with nothing happening.
 
+- **What the enemy team was saying.** See below — this one was a surprise.
+
 The clips legibly carry the game clock, the minimap, floating health bars
-over champions, the scoreboard, kill callouts, and the chat log — which
-carries real signal: enemy ability callouts and the team's own pings are
-often the actual explanation for a decision.
+over champions, the scoreboard, kill callouts, and the chat log.
+
+### The replay shows *both* teams' pings (2026-09-18)
+
+Not obvious and easy to miss: a replay is a spectator client, so the chat log
+renders the **enemy team's** pings and callouts in red alongside your own.
+That is information the player did not have during the game, and it can name
+the cause of a death outright.
+
+Found on NA1_5643483873 clip `474`, frame f26, at 8:06 — six seconds before
+the player died at blue buff, the enemy mid laner pings **"Lillia - Alive"**
+twice and **"signals that enemies are missing"** twice. The enemy team was
+actively tracking the player's position and calling it out while she kept
+clearing.
+
+Use it for *diagnosis*, never as something the player should have known:
+a finding may say "the enemy team had called her position six seconds
+earlier", but the coaching that follows has to be about what was on **her**
+screen — her own health bar, her own minimap.
 
 ## What it cannot
 
