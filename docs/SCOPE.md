@@ -42,7 +42,7 @@ Capture mechanics work; camera aiming does not, yet.
 | Directed camera hijacks playback | With `[Replay] EnableDirectedCamera=1`, resuming playback **clears `selectionName`** and the auto-director takes the camera. Set it to `0` in `game.cfg` (done); selection then persists |
 | `cameraMode` is a landmine | Setting it to `"tps"` killed the client instantly. `replay_api.py` refuses the field outright |
 | Camera follow: **unsolved** | `cameraAttached: true` + `selectionName: "<summoner name>"` + `selectionOffset` is accepted, but `cameraPosition` reads a fixed (300, −770) and never tracks the champion. `"focus"` mode gave (−1232, −214). Either `cameraPosition` is in a different space than world coordinates, or attachment needs something else. Under research |
-| Player HUD not shown | Captured frames lack the player's own health bar and ability/smite row, which P2 clips require. Likely the same selection problem |
+| Player HUD: one frame only | ⚠️ Partly solved. The bottom HUD (health, mana, level, ability ranks, summoner spells with cooldowns) renders in the **first captured frame** and is gone by the third — the asserted selection survives the seek just long enough to draw once. Read it from `f01`. See docs/PHASE3.md |
 | Replay launching | `open file.rofl` fails on macOS — nothing claims the extension. The LCU API (`/lol-replays/v1/...`) is the likely route. Under research |
 | Crashes so far | 4, all during or right after capture. Retry, crash detection and resume are mandatory, not nice-to-have |
 

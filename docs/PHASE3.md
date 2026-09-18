@@ -90,11 +90,19 @@ often the actual explanation for a decision.
 
 ## What it cannot
 
-- **No bottom HUD.** The player's own health bar and ability/summoner row do
-  not render for an API-asserted camera selection (docs/PHASE2.md's "Player
-  HUD not shown" finding) — that gap is exactly why the state snapshots
-  exist alongside the frames. Don't expect to read the player's own HP or
-  cooldowns off the video.
+- **The bottom HUD renders in the first frame only.** Refining PHASE2.md's
+  "Player HUD not shown": it *is* there in `f01` — champion portrait, exact
+  HP and mana, level, ability ranks and both summoner spell icons with their
+  cooldown numbers — and it is gone by `f03`. The API-asserted selection
+  survives the seek just long enough to draw one frame, then clears (the same
+  mechanism as PHASE2's "a render POST and a seek both clear the selection").
+  So read the HUD from `f01` and expect nothing after it; the state snapshots
+  still exist because one frame is not a time series.
+  At this capture width the two summoner spell icons are **not reliably
+  distinguishable from each other**, so a cooldown number can be read but not
+  always attributed to Flash or to Smite. Verified on NA1_5643462001 clips
+  375 and 540. Capturing one extra frame at the very start, before the
+  selection clears, would make the HUD read more dependable.
 - **No HP or cooldowns in state, either.** The Live Client Data snapshot
   gives level, items, summoner spells, scores and dead/alive — never health
   or ability/summoner cooldowns for anyone. A finding that claims "smite was

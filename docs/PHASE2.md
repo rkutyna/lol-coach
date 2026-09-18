@@ -153,10 +153,24 @@ docs describe the older v1 layout and don't match. `rofl_patch()` reads it with
 no client running, so an expired replay is caught before launching. The file's
 trailing metadata also holds a `statsJson` blob with full end-of-game stats.
 
-## Still open
+## Answered by the first reviewed clips (2026-09-18)
 
-- **Does a parked sequence actually frame the action?** Needs one real clip.
-- **Does asserting a selection show the player's HUD here?** Same clip answers it.
+- **Does a parked sequence actually frame the action?** *Sometimes.* Parking on a
+  pit works: NA1_5643462001 clips `375` (dragon) and `540` (grubs) frame the whole
+  contest cleanly, because the fight stays in the pit. Parking on a **death
+  coordinate** does not: clip `559` points at a rock face for most of its 21
+  seconds, because the fight that produced the death moved before it ended. The
+  approach that killed the player is off-screen, so the one question the clip
+  existed to answer — was the killer visible first — is unanswerable from it.
+  Death clips want the camera on where the player *was*, not where they fell.
+- **Does asserting a selection show the player's HUD here?** *Yes, for exactly one
+  frame.* `f01` carries the full bottom HUD — portrait, HP and mana numbers, level,
+  ability ranks, and both summoner spell icons with cooldown numbers — and it is
+  gone by `f03`. The selection survives the seek long enough to draw one frame and
+  then clears. At the current capture width the two summoner icons cannot be told
+  apart reliably, so a cooldown number is readable but not always attributable.
+
+## Still open
 - The download transitions and a scripted launch are **written but unrun** —
   the research verified every read-only LCU call against the live client, but
   triggering a real download and launch was left for a supervised run.
