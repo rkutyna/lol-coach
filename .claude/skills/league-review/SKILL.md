@@ -25,9 +25,9 @@ each time.
 
 ```bash
 cd /path/to/lol-coach
-python tools/fetch_match.py --count 5    # Summoner's Rift only; skips ARAM/Swiftplay/remakes
+python tools/fetch_match.py --count 5    # Summoner's Rift only; skips ARAM/Swiftplay/remakes; snapshots lobby ranks
 python tools/find_moments.py             # -> moments.json per match
-python tools/digest.py                   # -> stats.json per match + data/batch.json
+python tools/digest.py                   # -> stats.json per match (incl. lobby) + data/batch.json
 python tools/build_review.py             # -> web/data.js
 python3 -I tools/serve.py 8777           # viewer at http://127.0.0.1:8777
 ```
@@ -51,6 +51,10 @@ evidence standard rather than inventing a new format. What makes them work:
   checked can't be trusted.
 - **Fixes are physical**: "clear raptors then walk to dragon at 4:40", never "play
   better around objectives".
+- **Judge a game against its lobby.** The player queues with Gold and Diamond friends,
+  so opponents range from Iron to Diamond. Put the `lobby` summary from `stats.json` on
+  a **Lobby** line under each review's header, and never read a loss to a Gold+ lobby
+  as proof a habit failed. `python tools/ranks.py` backfills any match missing it.
 - **Wins get reviewed like losses.** A 3/0/4 win with one objective taken has a
   lesson in it.
 - **Promote a goal only when the batch numbers support it**, and record why in the

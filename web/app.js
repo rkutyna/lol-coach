@@ -601,10 +601,11 @@ function dashboard() {
   const perGame = el("div", "card");
   perGame.appendChild(el("h3", null, "Per game"));
   perGame.appendChild(tableOf(
-    ["game", "result", "vs jungler", "K/D/A", "CS/min", "deaths pre-15", "obj presence", "wards/min"],
+    ["game", "result", "vs jungler", "lobby", "K/D/A", "CS/min", "deaths pre-15", "obj presence", "wards/min"],
     D.games.map((g) => {
       const s = g.stats;
-      return [g.meta.match_id.replace("NA1_", ""), s.result, s.enemy_jungler, s.kda,
+      return [g.meta.match_id.replace("NA1_", ""), s.result, s.enemy_jungler,
+        s.lobby ? s.lobby.enemy_avg_rank : "—", s.kda,
         s.cs_per_min, s.deaths_before_15,
         `${s.objectives_i_was_present_for}/${s.objectives_team_took}`, s.wards_per_min];
     })));
@@ -908,6 +909,16 @@ function queueView() {
 const main = el("div", "wrap");
 const nav = el("nav");
 
+// Ranks are fetched after the game, so they describe the lobby as of that
+// date; an average over one or two ranked players is flagged as thin.
+function lobbyLine(l) {
+  const ej = l.enemy_jungler;
+  return `Lobby: enemies average ${l.enemy_avg_rank} (${l.enemies_ranked}/5 ranked` +
+    `${l.confident ? "" : ", thin"}) — ${l.verdict}` +
+    (ej ? ` · enemy jungler ${ej.champion} ${ej.rank}` : "") +
+    ` · ranks as of ${l.ranks_as_of}`;
+}
+
 function gameView(game) {
   const frag = document.createDocumentFragment();
   const s = game.stats;
@@ -918,10 +929,12 @@ function gameView(game) {
   top.appendChild(el("p", "sub",
     `${game.meta.queue} · ${localYMD(game.meta.played_utc)} · ` +
     (game.meta.replay_capturable ? "replay still capturable" : "replay expired")));
+  if (s.lobby) top.appendChild(el("p", "sub", lobbyLine(s.lobby)));
   const strip = el("div", "stats");
   for (const [k, v] of [["K/D/A", s.kda], ["CS/min", s.cs_per_min],
     ["Deaths pre-15", s.deaths_before_15], ["Objectives", `${s.objectives_i_was_present_for}/${s.objectives_team_took}`],
-    ["Kill part.", `${Math.round(s.kill_participation * 100)}%`], ["Vision", s.vision_score]]) {
+    ["Kill part.", `${Math.round(s.kill_participation * 100)}%`], ["Vision", s.vision_score],
+    ["Lobby", s.lobby ? s.lobby.enemy_avg_rank : "—"]]) {
     const st = el("div", "stat");
     st.appendChild(el("div", "k", k));
     st.appendChild(el("div", "v", String(v)));

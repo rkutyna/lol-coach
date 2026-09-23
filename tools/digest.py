@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 
 import lolmap
+import ranks
 from riot import DATA
 
 # A remake or an early surrender teaches nothing.
@@ -99,6 +100,12 @@ def game_stats(match_dir: Path) -> dict | None:
         gold_diff_10 = (frames[10]["participantFrames"][pid]["totalGold"]
                         - frames[10]["participantFrames"][str(ej)]["totalGold"])
 
+    # Lobby strength, from the rank snapshot fetch_match.py / ranks.py took.
+    # Without it a loss to a Gold lobby and a loss to an Iron one look the same.
+    ranks_f = match_dir / "ranks.json"
+    lobby = (ranks.summarize(json.loads(ranks_f.read_text()), meta["participant_id"])
+             if ranks_f.exists() else None)
+
     stats = {
         "match_id": meta["match_id"],
         "result": "win" if meta["win"] else "loss",
@@ -139,6 +146,9 @@ def game_stats(match_dir: Path) -> dict | None:
         "vision_score": me.get("visionScore", 0),
         "enemy_jungle_cs": ch.get("enemyJungleMonsterKills", 0),
         "damage_per_min": round(ch.get("damagePerMinute", 0)),
+
+        # Who it was against
+        "lobby": lobby,
     }
     (match_dir / "stats.json").write_text(json.dumps(stats, indent=2))
     return stats
@@ -169,6 +179,10 @@ def batch(rows: list[dict]) -> dict:
         "avg_wards_per_min": avg("wards_per_min"),
         "avg_vision_score": avg("vision_score"),
         "full_clear_times": [r["full_clear_by"] for r in rows],
+        "lobbies": {v: f'{sum(1 for r in rows if (r.get("lobby") or {}).get("verdict") == v and r["result"] == "win")}W-'
+                       f'{sum(1 for r in rows if (r.get("lobby") or {}).get("verdict") == v and r["result"] == "loss")}L'
+                    for v in ("near your level", "harder", "much harder", "unknown")
+                    if any((r.get("lobby") or {"verdict": "unknown"}).get("verdict") == v for r in rows)},
     }
 
 
@@ -190,7 +204,8 @@ def main() -> int:
         print(f'{s["match_id"]}  {s["result"]:<5} vs {s["enemy_jungler"]:<10} '
               f'clear {s["full_clear_by"]:<5} cs/m {s["cs_per_min"]:<5} '
               f'deaths {s["deaths"]} ({s["deaths_before_15"]} pre-15)  '
-              f'obj present {s["objectives_i_was_present_for"]}/{s["objectives_team_took"]}')
+              f'obj present {s["objectives_i_was_present_for"]}/{s["objectives_team_took"]}  '
+              f'lobby {(s["lobby"] or {}).get("enemy_avg_rank", "?")}')
 
     if not rows:
         print("nothing to digest")
@@ -202,6 +217,7 @@ def main() -> int:
     for k in ("avg_deaths", "avg_deaths_before_15", "avg_cs_per_min", "avg_cs_at_10",
               "avg_objective_presence", "avg_kill_participation", "avg_wards_per_min"):
         print(f'  {k:<28} {b[k]}')
+    print(f'  {"lobbies":<28} {b["lobbies"]}')
     return 0
 
 

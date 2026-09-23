@@ -10,9 +10,10 @@ findings before touching the capture path.
 ## Reviewing a batch
 
 ```bash
-python tools/fetch_match.py --count 5     # Summoner's Rift games only
+python tools/fetch_match.py --count 5     # Summoner's Rift games only, + ranks.json
 python tools/find_moments.py              # -> moments.json per match
-python tools/digest.py                    # -> stats.json per match + batch.json
+python tools/ranks.py                     # backfill ranks.json where a fetch missed it
+python tools/digest.py                    # -> stats.json per match (incl. lobby) + batch.json
 ```
 
 Then, for the review itself:
@@ -34,6 +35,10 @@ Then, for the review itself:
   minute. If a verdict needs to see the screen, say so and mark the moment for
   capture instead of guessing.
 - **Wins are reviewed like losses.** The result is not the lesson.
+- **Judge a game against its lobby.** Each review opens with a **Lobby** line
+  from `stats.json` → `lobby`. The player queues with Gold and Diamond friends,
+  so enemy teams run from Iron to Diamond; a loss to a Gold+ lobby is not
+  evidence a habit failed, and a stomp of a Bronze one is not evidence it works.
 - **Iron-level standards.** Compare against the targets in `profile.md`, not
   against high-elo play.
 
@@ -45,13 +50,17 @@ Then, for the review itself:
 - `victimDamageReceived` on a death names every damage source, which often
   explains a death on its own (e.g. taking void grub damage during a gank).
 - `WARD_PLACED` has no position. Ward timing is knowable; ward placement is not.
+- Ranks (`ranks.json`) are **as of the fetch**, not the game — the League API
+  only returns current rank. Solo rank is used, then flex; unranked players are
+  left out of the average, and `confident: false` means fewer than 3 enemies
+  were ranked. An unranked enemy on an account under level 50 hints at a smurf.
 - Replays expire when the patch changes, so capture must run within ~2 weeks of
   a game. `meta.json` carries `replay_capturable`.
 
 ## Layout
 
 ```
-tools/      fetch_match.py, find_moments.py, digest.py, lolmap.py, riot.py
+tools/      fetch_match.py, ranks.py, find_moments.py, digest.py, lolmap.py, riot.py
 data/       profile.md, patterns.md, batch.json, matches/<id>/, reviews/
 docs/       SCOPE.md
 ```

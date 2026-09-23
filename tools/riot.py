@@ -133,3 +133,8 @@ class Riot:
         host = f"{self.region}.api.riotgames.com"
         return self._cached(f"{match_id}_timeline", host,
                             f"/lol/match/v5/matches/{match_id}/timeline")
+
+    def league_entries(self, puuid: str) -> list[dict]:
+        """Current ranked entries (solo and flex). Not cached: ranks move."""
+        host = f"{self.platform.lower()}.api.riotgames.com"
+        return self._get(host, f"/lol/league/v4/entries/by-puuid/{puuid}")

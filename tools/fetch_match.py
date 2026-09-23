@@ -5,7 +5,8 @@
   python tools/fetch_match.py --count 10
   python tools/fetch_match.py --match NA1_5643527353
 
-Writes data/matches/<match_id>/{match.json,timeline.json,meta.json}.
+Writes data/matches/<match_id>/{match.json,timeline.json,meta.json,ranks.json}.
+Ranks are the lobby's ranks *now*, so fetch soon after playing.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import ranks
 from riot import DATA, Riot, RiotError
 
 # Summoner's Rift 5v5 only. ARAM (450), Swiftplay (480), Arena (1700) and bot
@@ -101,6 +103,7 @@ def main() -> int:
         ids = api.match_ids(puuid, count=min(args.count * 6, 100))
 
     kept: list[dict] = []
+    rank_cache: dict[str, list[dict]] = {}
     for mid in ids:
         if len(kept) >= args.count and not args.match:
             break
@@ -111,6 +114,12 @@ def main() -> int:
             continue
         if meta is None:
             continue
+        match_dir = DATA / "matches" / mid
+        if not (match_dir / "ranks.json").exists():
+            try:
+                ranks.save(api, match_dir, rank_cache)
+            except RiotError as e:
+                print(f"  {mid}: ranks not fetched ({e}); run tools/ranks.py later")
         kept.append(meta)
         flag = "" if meta["replay_capturable"] else "  [replay expired]"
         print(f'  {mid}  {meta["played_utc"][:10]}  {meta["queue"]:<12}'
