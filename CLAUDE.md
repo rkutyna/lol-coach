@@ -124,3 +124,11 @@ pgrep -f tools/capture.py                            # nothing = orphaned replay
 
 A frozen game with **no driver running** is an orphan from a crashed run; kill
 it. The driver now closes its own replays on exit, crash, or Ctrl-C.
+
+### If every launch fails with `rc=-11`
+
+The game needs an awake display. If the Mac's screen sleeps (or locks) mid-run,
+each relaunch dies before the Replay API comes up, and the newest file in
+`LoL/Logs/GameLogs/` says `Failed querying system monitors`. `caffeinate -d`
+alone did not hold a locked screen awake on 2026-09-22; re-asserting user
+activity did — run the driver with `caffeinate -u -t 25` looping beside it.

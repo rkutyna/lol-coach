@@ -23,10 +23,12 @@ PITS = {
 
 # Objective spawn times in seconds. PATCH DEPENDENT — verify when a patch
 # changes jungle timers. Used only to ask "where were you just before this?".
+# Checked 2026-09-21 against 20 games on 16.18: no grub kill before 8:10 and no
+# herald kill before 15:34 by either team, so 6:00/14:00 were stale.
 SPAWNS = {
     "first_dragon": 300,
-    "void_grubs": 360,
-    "rift_herald": 840,
+    "void_grubs": 480,
+    "rift_herald": 900,
     "baron": 1200,
 }
 

@@ -75,8 +75,9 @@ them.
 
 ## What the footage can answer
 
-- **Killer visibility** — was the champion on screen or the minimap before
-  the kill, or did they show up from fog.
+- **Killer visibility** — was the champion's *model* on screen before the kill
+  (with fog of war on, that is real team vision), or did they show up from fog.
+  The minimap does **not** answer this; see "What it cannot".
 - **Smite timing** — pressed early, late, contested and lost, or never
   pressed at all.
 - **Who arrived when** — at a pit, at a fight, in what order, on which side.
@@ -108,6 +109,22 @@ screen — her own health bar, her own minimap.
 
 ## What it cannot
 
+- **The minimap renders all ten champions, regardless of vision.** A replay is a
+  spectator client, so an enemy icon on the minimap proves only where that
+  champion was — never that the player could see them. Verified on
+  NA1_5647258830 clip `470`, f20: a blue-team icon is drawn inside the blue
+  fountain while the player is on red. Claims like "the killer was on her
+  minimap for 20 seconds" are therefore **not** findings about map reading.
+  What does carry vision: champion models on screen in a `fog_of_war: true`
+  clip, and the player's own team's pings.
+
+- **The first frames after a seek can draw champions where they are not.**
+  Found on NA1_5647144356 clip `300`, f02–f06: three allies render standing on
+  the blue fountain, with correct levels and name tags, while the 5:00 timeline
+  frame puts them 9–12k away in lane; one model is also drawn hugely clipped.
+  The client is still resolving state after the seek. Treat positions in the
+  first few frames as unreliable, and corroborate any of them against the
+  minute frame before using them.
 - **The bottom HUD renders in the first frame only.** Refining PHASE2.md's
   "Player HUD not shown": it *is* there in `f01` — champion portrait, exact
   HP and mana, level, ability ranks and both summoner spell icons with their
