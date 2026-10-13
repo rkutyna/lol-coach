@@ -90,10 +90,19 @@ python tools/capture.py --launch                 # capture everything outstandin
 python tools/capture.py NA1_123 --only P1_camp_death --launch --limit 1
 ```
 
+**Use `--screen`** (`python tools/capture.py NA1_123 --launch --screen`). It records the
+game window with macOS instead of the client's recorder: no freeze, the client keeps
+answering, and one launch serves every clip in a game (about 30 seconds a clip). It needs
+Screen Recording permission and the game window left visible and uncovered. The freeze and
+one-clip-per-launch notes below describe the old recorder, which is the fallback.
+
+The player may play other champions (Shyvana from 2026-10-10); `profile.md` says which
+goals apply to which.
+
 `--launch` downloads the replay if needed, opens it, captures, and closes it. The
 driver closes its own replays on exit, crash, or Ctrl-C.
 
-**Budget about 2.5 minutes per clip**, nearly all of it replay loading. Replays
+**With the old recorder, budget about 2.5 minutes per clip**, nearly all of it replay loading. Replays
 also **expire when the patch changes**, so capture within ~2 weeks of a game;
 `meta.json` carries `replay_capturable` and `rofl_patch()` checks a file offline.
 
