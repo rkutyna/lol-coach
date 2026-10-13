@@ -84,7 +84,8 @@ server is used — macOS blocks that server from reading `~/Documents`.
 ```bash
 python tools/capture_plan.py              # decide what's worth filming
 python tools/capture.py --dry-run         # review the plan + what's already done
-python tools/capture.py NA1_5643506492 --launch --limit 1 --verify-camera
+python tools/capture.py NA1_5643506492 --launch --screen     # fast: one launch per game
+python tools/capture.py NA1_5643506492 --launch --limit 1 --verify-camera   # old recorder
 python tools/build_review.py              # clips appear in the viewer
 ```
 
@@ -115,10 +116,19 @@ Read [docs/PHASE3.md](docs/PHASE3.md) first. The rules that matter:
   minute frame is. A finding that contradicts the frame data is wrong.
 - **`unreadable` is a first-class answer.** If the footage doesn't settle it,
   say so. A camera parked on a death coordinate often misses the approach.
-- The player HUD renders in **f01 only**, and the two summoner spell icons
-  are not reliably distinguishable at this capture width.
+- With the old recorder the player HUD renders in **f01 only**; `--screen`
+  clips keep it throughout. The two summoner spell icons are not reliably
+  distinguishable at review width — use the `hud/` crops.
 - A replay is a spectator client, so **the enemy team's pings are visible**.
   Useful for diagnosis; never coach as if the player could have seen them.
+
+**Prefer `--screen`.** It records the game window with macOS instead of the
+client's recorder, so the client never hangs and one launch serves every clip
+(about 30 seconds a clip instead of 2.5 minutes). It needs Screen Recording
+permission and the game window left visible and uncovered. With it, the
+player HUD stays on screen for the whole clip, and a full-resolution crop of it
+is saved under `frames/<key>/hud/`. The freeze notes below are for the old
+recorder only.
 
 ### If a replay looks frozen
 

@@ -234,3 +234,54 @@ the client blocking on PNG writes. It cannot be removed, only shortened:
 - A smaller game window, since capture resolution follows it.
 
 The driver prints the estimate before each clip and says not to force quit.
+
+## Screen recording: one launch per game (2026-10-12)
+
+`capture.py --screen` stops using `/replay/recording` altogether. The API only
+seeks, sets the HUD and aims the camera; macOS records the window
+(`screencapture -v -R <window rect> -V <seconds>`), and ffmpeg turns that into
+the same mp4 and review JPEGs as before.
+
+Why it matters: the hang-after-one-clip is caused by the client's recorder,
+not by playback. Without the render call the client keeps answering, so the
+relaunch per clip goes away.
+
+- **Measured:** 6 clips from one launch in under 4 minutes, and 53 clips
+  across 9 games in one unattended run. The old path was one launch and about
+  2.5 minutes per clip.
+- **No freeze**, no PNGs on disk, and no "force quit?" dialog.
+- **`--speed` (default 2)** plays the replay faster while recording;
+  timestamps are stretched back so one second of clip is one game second.
+  2x and 4x were both legible. Keyframed cameras behave at speed.
+- **The player's HUD stays on screen for the whole clip**, not f01 only: with
+  no render POST after the selection, nothing clears it. `media.py` also saves
+  that corner at full resolution to `frames/<key>/hud/fNN.jpg`, where the
+  health number and summoner cooldowns are readable.
+- **Long seeks are the remaining cost.** A clip 30 minutes into a replay takes
+  noticeably longer to reach than one at 5 minutes. Jobs are best run in time
+  order.
+
+What it needs, and what goes wrong:
+
+- **Screen Recording permission** for whatever runs the driver (System
+  Settings → Privacy & Security). Without it `screencapture` exits 1 and
+  writes nothing; the driver reports that as a failed clip.
+- **The game window must stay visible and uncovered** — a rect is recorded,
+  not the window, so anything on top of it is in the clip. macOS
+  notifications land in the top-right corner of the frame.
+- The window rect comes from a small Swift call to
+  `CGWindowListCopyWindowInfo`, read once per launch. Changing the monitor
+  layout mid-run would move the window out from under it.
+
+**Champion follow still does not work.** Tried here with the selection
+asserted, `cameraAttached: true`, camera mode `top` and no sequence: the
+camera sat on the blue fountain for the whole clip. Aim with keyframes. For a
+fight, a parked camera at altitude 3000 on the player's death position (or the
+first kill of the fight) frames both teams.
+
+**The roster check normalises names** — the match API says `DrMundo`, the live
+client `Dr. Mundo`, and comparing them raw rejected a correct replay as "a
+different game".
+
+League Director was checked again as an alternative: still Windows-only in its
+releases, and it records through the same `/replay/recording` call.

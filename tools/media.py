@@ -73,3 +73,30 @@ def process(capture_root: Path, out_mp4: Path, review_dir: Path,
         shutil.rmtree(capture_root, ignore_errors=True)
         info["png_deleted"] = True
     return info
+
+
+def process_recording(mov: Path, out_mp4: Path, review_dir: Path,
+                      speed: float = 1.0, clip_fps: int = 10) -> dict:
+    """Screen recording -> mp4 in game time + review JPEGs, deleting the .mov.
+
+    The window was recorded in wall time at `speed`x playback, so timestamps
+    are stretched back by `speed` and one second of clip is one game second.
+    """
+    out_mp4.parent.mkdir(parents=True, exist_ok=True)
+    _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(mov),
+          "-vf", f"setpts=PTS*{speed},fps={clip_fps},scale=1280:-2", "-an",
+          "-c:v", "libx264", "-crf", "26", "-pix_fmt", "yuv420p",
+          "-movflags", "+faststart", str(out_mp4)])
+    jpgs = to_review_frames(out_mp4, review_dir, fps=REVIEW_FPS)
+    # The player's HUD (health number, cooldowns) is too small to read at
+    # review width, so keep that corner at the recording's own resolution.
+    hud_dir = review_dir / "hud"
+    hud_dir.mkdir(parents=True, exist_ok=True)
+    for old in hud_dir.glob("*.jpg"):
+        old.unlink()
+    _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(mov),
+          "-vf", f"setpts=PTS*{speed},fps={REVIEW_FPS},crop=iw*0.18:ih*0.17:0:ih*0.75",
+          "-q:v", "3", str(hud_dir / "f%02d.jpg")])
+    mov.unlink(missing_ok=True)
+    return {"frames": len(jpgs), "bytes": out_mp4.stat().st_size,
+            "fps": REVIEW_FPS, "review_frames": len(jpgs)}

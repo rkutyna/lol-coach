@@ -6,11 +6,16 @@
   python tools/capture.py NA1_5643506492 --only P1_camp_death --limit 1
 
   python tools/capture.py NA1_5643506492 --launch # open and close the replay myself
+  python tools/capture.py NA1_5643506492 --launch --screen   # fast path, see below
 
 With --launch, the replay is downloaded if needed (via the League client) and
 started directly, then closed afterwards. Without it, a replay must already be
 open. Already-captured clips are skipped, so a crash is resumable — and with
 --launch the driver reopens the replay and carries on by itself.
+
+--screen records the game window with macOS instead of the client's own
+recorder. The client stays responsive, so one launch serves every clip in a
+game; it needs Screen Recording permission and an uncovered game window.
 
 Order matters and is not arbitrary: seek, then HUD, then play, then aim. A
 paused replay's camera never moves, a render clears the selection, and seeking
@@ -89,13 +94,16 @@ def check_replay_matches(api: Replay, match_id: str) -> tuple[bool, str]:
     """
     meta = json.loads((DATA / "matches" / match_id / "meta.json").read_text())
     match = json.loads((DATA / "matches" / match_id / "match.json").read_text())
-    want = {p["championName"] for p in match["info"]["participants"]}
+    # The match API says "DrMundo", the live client "Dr. Mundo".
+    def norm(name: str) -> str:
+        return "".join(c for c in name.lower() if c.isalnum())
+    want = {norm(p["championName"]) for p in match["info"]["participants"]}
 
     try:
         roster = api.roster()
     except Exception as e:
         return False, f"could not read the roster ({e})"
-    have = {r["champion"] for r in roster if r["champion"]}
+    have = {norm(r["champion"]) for r in roster if r["champion"]}
     if have and len(want & have) < 8:
         return False, f"different game is open (champions {sorted(have)[:4]}…)"
 
@@ -293,6 +301,125 @@ def capture_job(api: Replay, job: dict, out_root: Path, scratch: Path,
     return result
 
 
+# --- screen recording ------------------------------------------------------
+# The client's own recorder hangs it for good after one clip, so every clip
+# cost a relaunch. Recording the window with macOS instead leaves the client
+# answering: the API only seeks and aims, and one launch serves a whole game.
+# Measured 2026-10-12 on NA1_5659323300: four clips in 162s from one launch.
+
+_SWIFT_BOUNDS = r'''
+import CoreGraphics
+import Foundation
+let pid = Int(CommandLine.arguments[1])!
+let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as! [[String: Any]]
+for w in list {
+    if (w["kCGWindowOwnerPID"] as? Int) == pid, let b = w["kCGWindowBounds"] as? [String: Any] {
+        print(b["X"]!, b["Y"]!, b["Width"]!, b["Height"]!)
+    }
+}
+'''
+
+
+def window_rect(pid: int, scratch: Path) -> tuple[int, int, int, int] | None:
+    """The game's largest on-screen window, in global display points."""
+    script = scratch / "bounds.swift"
+    script.write_text(_SWIFT_BOUNDS)
+    # Best effort: needs Accessibility. A covered window records the cover.
+    subprocess.run(["osascript", "-e",
+                    'tell application "System Events" to set frontmost of '
+                    f'(first process whose unix id is {pid}) to true'],
+                   capture_output=True)
+    r = subprocess.run(["swift", str(script), str(pid)], capture_output=True, text=True)
+    best = None
+    for line in r.stdout.splitlines():
+        try:
+            x, y, w, h = (int(float(v)) for v in line.split())
+        except ValueError:
+            continue
+        if best is None or w * h > best[2] * best[3]:
+            best = (x, y, w, h)
+    return best
+
+
+def capture_job_screen(api: Replay, job: dict, out_root: Path, scratch: Path,
+                       rect: tuple[int, int, int, int], speed: float) -> dict:
+    """Capture one clip by recording the window. The client stays usable."""
+    start, end = job["start_s"], api.safe_end(job["end_s"])
+    if end <= start + 1:
+        return {"status": "skipped", "reason": "window falls inside the end margin"}
+    cam, hud = job["camera"], job["hud"]
+
+    api.wait_responsive()
+    api.seek(max(0, start - 3.0 * speed))
+    api.set_hud(minimap=hud.get("minimap", True),
+                scoreboard=hud.get("scoreboard", False),
+                fog_of_war=job["fog_of_war"])
+    time.sleep(replay_api.SETTLE_S)
+    api.play(speed)
+    time.sleep(0.5)
+    api.select_champion(selection_name(api, cam["hud_selection"]))
+    if cam["keyframes"]:
+        keys = [{"time": k["time"],
+                 "value": {"x": k["x"], "y": k["altitude"], "z": k["z"]},
+                 "blend": "linear"} for k in cam["keyframes"]]
+        rots = [{"time": k["time"], "value": {"x": 0.0, "y": PITCH, "z": 0.0},
+                 "blend": "linear"} for k in cam["keyframes"]]
+        api.set_sequence(keys, rots)
+
+    try:
+        state = api.live_state()
+        state_dir = out_root / "state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / f'{job["start_s"]}.json').write_text(json.dumps(state))
+    except Exception:
+        pass
+
+    while api.playback().get("time", 0) < start - 0.3 * speed:
+        time.sleep(0.1)
+    game_start = api.playback().get("time")
+
+    scratch.mkdir(parents=True, exist_ok=True)
+    mov = scratch / f'{job["name"]}.mov'
+    mov.unlink(missing_ok=True)
+    x, y, w, h = rect
+    rec = subprocess.run(["screencapture", "-x", "-v", "-V", f"{(end - start) / speed:.0f}",
+                          "-R", f"{x},{y},{w},{h}", str(mov)],
+                         capture_output=True, text=True)
+    quietly(api.pause)
+    if cam["keyframes"]:
+        quietly(api.clear_sequence)
+    if not mov.exists() or not mov.stat().st_size:
+        return {"status": "failed",
+                "reason": f"screen recording wrote nothing ({rec.stderr.strip()[:120]}) "
+                          "— does this terminal have Screen Recording permission?"}
+
+    mp4 = out_root / "clips" / f'{job["start_s"]}.mp4'
+    frames_dir = out_root / "frames" / str(job["start_s"])
+    try:
+        info = media.process_recording(mov, mp4, frames_dir, speed=speed)
+    except RuntimeError as e:
+        return {"status": "failed", "reason": str(e)}
+    want = int((end - start) * info["fps"])
+    return {
+        "status": "ok" if info["frames"] >= want * 0.9 else "partial",
+        "clip": str(mp4.relative_to(DATA)),
+        "review_frames": info["review_frames"],
+        "frames_captured": info["frames"],
+        "frames_expected": want,
+        "mp4_bytes": info["bytes"],
+        "profile": job["profile"],
+        "clock": job["clock"],
+        "why": job["why"],
+        "window": [start, end],
+        "fps": info["fps"],
+        "fog_of_war": job["fog_of_war"],
+        "method": "screen",
+        "speed": speed,
+        "game_time_start": game_start,
+        "camera_moving": None,
+    }
+
+
 def open_replay(match_id: str) -> subprocess.Popen | None:
     """Launch the replay for a match, downloading it first if the client is up.
 
@@ -349,6 +476,11 @@ def main() -> int:
     ap.add_argument("--redo", action="store_true", help="recapture existing clips")
     ap.add_argument("--verify-camera", action="store_true",
                     help="check the camera actually moves (costs ~2s per clip)")
+    ap.add_argument("--screen", action="store_true",
+                    help="record the window with macOS instead of the client's "
+                         "recorder: no freeze, and one launch serves every clip")
+    ap.add_argument("--speed", type=float, default=2.0,
+                    help="playback speed while screen recording (default 2)")
     ap.add_argument("--launch", action="store_true",
                     help="open each match's replay myself, and close it afterwards")
     args = ap.parse_args()
@@ -409,6 +541,18 @@ def main() -> int:
         out_root = DATA / "matches" / match_id
         done = load_manifest(match_id)
 
+        rect = None
+        if args.screen:
+            pid = proc.pid if proc else int(subprocess.run(
+                ["pgrep", "-f", replay_api.GAME_PROCESS], capture_output=True, text=True
+            ).stdout.split()[0])
+            rect = window_rect(pid, scratch)
+            if not rect:
+                print("   could not find the game window — skipping")
+                close_everything()
+                continue
+            print(f"   recording window at {rect}, {args.speed:g}x")
+
         jobs = [j for j in p["jobs"]
                 if not args.only or j["profile"] == args.only]
         i = 0
@@ -429,8 +573,12 @@ def main() -> int:
             print(f'   {job["clock"]:<12} {job["profile"]:<17} '
                   f'{job["start_s"]}-{job["end_s"]}s at {job["fps"]}fps … ', end="", flush=True)
             try:
-                result = capture_job(api, job, out_root, scratch,
-                                     verify_camera=args.verify_camera)
+                if args.screen:
+                    result = capture_job_screen(api, job, out_root, scratch,
+                                                rect, args.speed)
+                else:
+                    result = capture_job(api, job, out_root, scratch,
+                                         verify_camera=args.verify_camera)
             except ReplayBusy as e:
                 print(f"client stopped answering ({e})")
                 rescued = salvage(tmp_dir_for(scratch, job), job, out_root,
@@ -494,7 +642,9 @@ def main() -> int:
             # launch is the real constraint — relaunch straight away rather
             # than waiting out a recovery that never comes.
             more_to_do = any(not covering_clip(done, j) for j in jobs[i:])
-            if more_to_do and args.launch:
+            if args.screen:
+                pass                      # the client is still answering
+            elif more_to_do and args.launch:
                 print("      client is spent after a capture; relaunching")
                 close_everything()
                 try:
