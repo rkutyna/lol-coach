@@ -16,6 +16,15 @@ python tools/ranks.py                     # backfill ranks.json where a fetch mi
 python tools/digest.py                    # -> stats.json per match (incl. lobby) + batch.json
 ```
 
+**Meta research is part of a review.** For each champion in the batch, check
+`data/meta/<Champion>.md`. If it's missing, or written for an older patch than
+the games (`gameVersion` in `match.json`), research it: kit facts from the
+League wiki, builds and runes from a stats site filtered to the current patch,
+play pattern from one or two current guides. Record the patch, the date, the
+sources, and what could not be verified. Then compare the player's build and
+play against it in the batch review. Never coach a champion's kit or build from
+memory — champions get reworked.
+
 Then, for the review itself:
 
 1. Read `data/profile.md` (the active goals) and `data/patterns.md` (history).

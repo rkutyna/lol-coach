@@ -40,6 +40,13 @@ A **development Riot API key expires every 24h**, so a 401 means the key in `.en
 needs regenerating at developer.riotgames.com. Ask the user for a fresh one; never
 put a key anywhere but `.env`.
 
+## Meta research
+
+Every review includes current-meta research for each champion played: kit, build, runes and
+play pattern for the patch the games were on. Notes are kept in `data/meta/<Champion>.md`
+and refreshed when the patch moves on; the repo's `CLAUDE.md` has the method. Compare the
+player's build and play against it in the batch review, with sources.
+
 ## Writing a review
 
 The reviews already in `data/reviews/` are the template — match their depth and
